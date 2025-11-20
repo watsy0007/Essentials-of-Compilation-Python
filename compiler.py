@@ -223,6 +223,43 @@ class Compiler:
 
 
     ############################################################################
+    # Build Interference Graph
+    ############################################################################
+
+    def build_interference(self, p: X86Program, live_after: dict[Instr, set[str]]) -> dict[str, set[str]]:
+        graph: dict[str, set[str]] = {}
+
+        def add_vertex(v: str):
+            graph.setdefault(v, set())
+
+        def add_edge(u: str, v: str):
+            if u == v:
+                return
+            add_vertex(u)
+            add_vertex(v)
+            graph[u].add(v)
+            graph[v].add(u)
+
+        for i in p.instrs:
+            live = set(live_after.get(i, set()))
+            writes = self.write_vars(i)
+
+            # Ensure all seen variables/registers exist in graph even if isolated.
+            for v in live | writes | self.read_vars(i):
+                add_vertex(v)
+
+            match i:
+                case Instr("movq", [src, _]):
+                    live = live - self.locations(src)
+
+            for w in writes:
+                for v in live:
+                    add_edge(w, v)
+
+        return graph
+
+
+    ############################################################################
     # Assign Homes
     ############################################################################
 
