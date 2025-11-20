@@ -160,6 +160,67 @@ class Compiler:
                 for stmt in body:
                     instrs.extend(self.select_stmt(stmt))
                 return X86Program(instrs)
+    ############################################################################
+    # Liveness Analysis
+    ############################################################################
+
+    def locations(self, e: Arg) -> set[str]:
+        match e:
+            case Reg(r):
+                return {r}
+            case Var(v):
+                return {v}
+            case Deref(r, _):
+                return {r}
+            case _:
+                return set()
+
+    def read_vars(self, i: Instr) -> set[str]:
+        match i:
+            case Instr("movq", [s, d]):
+                reads = self.locations(s)
+                if isinstance(d, Deref):
+                    reads = reads | {d.reg}
+                return reads
+            case Instr("addq", [s, d]) | Instr("subq", [s, d]):
+                return self.locations(s) | self.locations(d)
+            case Instr("negq", [d]):
+                return self.locations(d)
+            case Instr("callq", _):
+                return set()
+            case Instr("pushq", [s]):
+                return self.locations(s)
+            case Instr("popq", [d]):
+                if isinstance(d, Deref):
+                    return {d.reg}
+                return set()
+            case Instr("retq", _):
+                return {"rax", "rsp"}
+            case _:
+                return set()
+
+    def write_vars(self, i: Instr) -> set[str]:
+        caller_saved = {"rax", "rcx", "rdx", "rsi", "rdi", "r8", "r9", "r10", "r11"}
+        match i:
+            case Instr("movq", [_, d]) | Instr("addq", [_, d]) | Instr("subq", [_, d]) | Instr("negq", [d]) | Instr("popq", [d]):
+                if isinstance(d, (Reg, Var)):
+                    return self.locations(d)
+                return set()
+            case Instr("callq", _):
+                return caller_saved
+            case _:
+                return set()
+
+    def uncover_live(self, p: X86Program) -> dict[Instr, set[str]]:
+        live_after = {}
+        live = set()
+        for i in reversed(p.instrs):
+            live_after[i] = live
+            read = self.read_vars(i)
+            write = self.write_vars(i)
+            live = (live - write) | read
+        return live_after
+
 
     ############################################################################
     # Assign Homes
