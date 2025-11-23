@@ -43,6 +43,32 @@ def test_select_instructions():
     assert str(result) == "\t" + "\n\t".join(x86_lines) + "\n"
 
 
+def test_color_graph():
+    cc = Compiler()
+    interference_graph = {
+        "a": {"b"},
+        "b": {"a", "c"},
+        "c": {"b"},
+    }
+
+    variables = ["a", "b", "c", "d"]
+
+    colors = cc.color_graph(interference_graph, variables)
+
+    assert colors == {"a": 1, "b": 0, "c": 1, "d": 0}
+
+
+def test_color_graph_with_precolored_nodes():
+    cc = Compiler()
+    interference_graph = {"v": {"rdi"}, "rdi": {"v"}}
+
+    variables = ["v"]
+
+    colors = cc.color_graph(interference_graph, variables, {"rdi": 0})
+
+    assert colors == {"v": 1}
+
+
 def test_assign_homes():
     x86_ast_tree = X86Program(
         [
@@ -67,6 +93,31 @@ def test_assign_homes():
         "retq",
     ]
     assert str(result) == "\t" + "\n\t".join(x86_lines) + "\n"
+
+
+def test_allocate_registers():
+    program = X86Program(
+        [
+            Instr("movq", [Immediate(1), Var("a")]),
+            Instr("movq", [Immediate(2), Var("b")]),
+            Instr("addq", [Var("a"), Var("b")]),
+            Instr("addq", [Var("b"), Var("a")]),
+        ]
+    )
+
+    cc = Compiler()
+    allocated = cc.allocate_registers(program)
+
+    expected = X86Program(
+        [
+            Instr("movq", [Immediate(1), Reg("rcx")]),
+            Instr("movq", [Immediate(2), Reg("rdx")]),
+            Instr("addq", [Reg("rcx"), Reg("rdx")]),
+            Instr("addq", [Reg("rdx"), Reg("rcx")]),
+        ]
+    )
+
+    assert repr(allocated) == repr(expected)
 
 
 def test_patch_instructions():
