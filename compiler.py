@@ -229,34 +229,99 @@ class Compiler:
     def build_interference(self, p: X86Program, live_after: dict[Instr, set[str]]) -> dict[str, set[str]]:
         graph: dict[str, set[str]] = {}
 
-        def add_vertex(v: str):
+        def ensure(v: str):
             graph.setdefault(v, set())
 
-        def add_edge(u: str, v: str):
+        def connect(u: str, v: str):
             if u == v:
                 return
-            add_vertex(u)
-            add_vertex(v)
+            ensure(u)
+            ensure(v)
             graph[u].add(v)
             graph[v].add(u)
 
-        for i in p.instrs:
-            live = set(live_after.get(i, set()))
-            writes = self.write_vars(i)
+        for instr in p.instrs:
+            live = live_after.get(instr, set())
+            reads = self.read_vars(instr)
+            writes = self.write_vars(instr)
 
-            # Ensure all seen variables/registers exist in graph even if isolated.
-            for v in live | writes | self.read_vars(i):
-                add_vertex(v)
+            for v in live | reads | writes:
+                ensure(v)
 
-            match i:
-                case Instr("movq", [src, _]):
-                    live = live - self.locations(src)
+            if isinstance(instr, Instr) and instr.op == "movq":
+                src = instr.args[0]
+                live -= self.locations(src)
 
             for w in writes:
                 for v in live:
-                    add_edge(w, v)
+                    connect(w, v)
 
         return graph
+
+
+    ############################################################################
+    # Color Graph
+    ############################################################################
+
+    def color_graph(
+        self,
+        interference_graph: dict[str, set[str]],
+        variables: list[str],
+        precolored: dict[str, int] | None = None,
+    ) -> dict[str, int]:
+        """DSatur graph coloring with stable tie-breaks (degree, then input order)."""
+        colors: dict[str, int] = dict(precolored or {})
+        order = {v: idx for idx, v in enumerate(variables)}
+        pending = [v for v in variables if v not in colors]
+
+        def key(v: str) -> tuple[int, int, int]:
+            neighbors = interference_graph.get(v, set())
+            sat = len({colors[n] for n in neighbors if n in colors})
+            return (sat, len(neighbors), -order.get(v, 0))
+
+        while pending:
+            var = max(pending, key=key)
+            neighbor_colors = {colors[n] for n in interference_graph.get(var, set()) if n in colors}
+            color = 0
+            while color in neighbor_colors:
+                color += 1
+            colors[var] = color
+            pending.remove(var)
+
+        return {v: colors[v] for v in variables}
+
+
+    ############################################################################
+    # Allocate Registers
+    ############################################################################
+
+    def allocate_registers(self, p: X86Program) -> X86Program:
+        """Replace some Var operands with physical registers using graph coloring."""
+        available_registers = ["rcx", "rdx", "rsi", "rdi", "r8", "r9", "r10", "r11"]
+        precolored = {reg: idx for idx, reg in enumerate(available_registers)}
+
+        live_after = self.uncover_live(p)
+        interference_graph = self.build_interference(p, live_after)
+        variables = sorted(self.collect_vars(p.instrs))
+        color_assignment = self.color_graph(interference_graph, variables, precolored)
+
+        register_map: dict[str, Reg] = {
+            var: Reg(available_registers[color])
+            for var, color in color_assignment.items()
+            if color < len(available_registers)
+        }
+
+        new_instrs = []
+        for instr in p.instrs:
+            new_args = []
+            for arg in instr.args:
+                if isinstance(arg, Var) and arg.name in register_map:
+                    new_args.append(register_map[arg.name])
+                else:
+                    new_args.append(arg)
+            new_instrs.append(Instr(instr.op, new_args))
+
+        return X86Program(new_instrs)
 
 
     ############################################################################
