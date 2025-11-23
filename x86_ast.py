@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
@@ -64,6 +64,7 @@ class Instr:
 @dataclass
 class X86Program:
     instrs: list[Instr]
+    used_callee: set[str] = field(default_factory=set)
 
     def __str__(self):
         result = ""

@@ -56,15 +56,25 @@ def test_assign_homes():
 
     result = cc.assign_homes(x86_ast_tree)
     x86_lines = [
-        "pushq %rbp",
-        "movq %rsp, %rbp",
-        "subq $8, %rsp",
         "movq $42, -8(%rbp)",
         "movq -8(%rbp), %rdi",
         f"callq {label_name('print_int')}",
-        "addq $8, %rsp",
-        "popq %rbp",
-        "retq",
+    ]
+    assert str(result) == "\t" + "\n\t".join(x86_lines) + "\n"
+
+
+def test_assign_homes_with_locations():
+    x86_ast_tree = X86Program(
+        [
+            Instr("movq", [Var("v"), Var("w")]),
+        ]
+    )
+
+    cc = Compiler()
+    homes = {"v": Deref("rbp", -8), "w": Reg("rcx")}
+    result = cc.assign_homes(x86_ast_tree, homes)
+    x86_lines = [
+        "movq -8(%rbp), %rcx",
     ]
     assert str(result) == "\t" + "\n\t".join(x86_lines) + "\n"
 
@@ -86,13 +96,36 @@ def test_patch_instructions():
     assert str(result) == "\t" + "\n\t".join(x86_lines) + "\n"
 
 
+def test_patch_instructions_removes_trivial_moves():
+    cc = Compiler()
+    x86_ast_tree = X86Program(
+        [
+            Instr("movq", [Deref("rbp", -8), Deref("rbp", -8)]),
+            Instr("movq", [Reg("rax"), Reg("rax")]),
+            Instr("movq", [Deref("rbp", -8), Deref("rbp", -16)]),
+        ]
+    )
+    result = cc.patch_instructions(x86_ast_tree)
+    x86_lines = ["movq -8(%rbp), %rax", "movq %rax, -16(%rbp)"]
+    assert str(result) == "\t" + "\n\t".join(x86_lines) + "\n"
+
+
 def test_prelude_and_conclusion():
     cc = Compiler()
 
-    X86_ast_tree = X86Program([])
+    X86_ast_tree = X86Program([Instr("movq", [Deref("rbp", -16), Reg("rcx")])], used_callee={"rbx"})
     result = cc.prelude_and_conclusion(X86_ast_tree)
     x86_lines = [
         f".globl {label_name('main')}",
         f"{label_name('main')}:",
+        "\tpushq %rbp",
+        "\tmovq %rsp, %rbp",
+        "\tpushq %rbx",
+        "\tsubq $8, %rsp",
+        "\tmovq -16(%rbp), %rcx",
+        "\taddq $8, %rsp",
+        "\tpopq %rbx",
+        "\tpopq %rbp",
+        "\tretq",
     ]
     assert str(result) == "\n".join(x86_lines) + "\n"
