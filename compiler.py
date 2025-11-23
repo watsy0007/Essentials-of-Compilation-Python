@@ -329,46 +329,36 @@ class Compiler:
     ############################################################################
 
     def collect_vars(self, instrs: list[Instr]) -> set[str]:
-        return set((arg.name for instr in instrs for arg in instr.args if isinstance(arg, Var)))
+        return {arg.name for instr in instrs for arg in instr.args if isinstance(arg, Var)}
 
-    def assign_homes_arg(self, a: Arg, home: dict[Var, Arg]) -> dict:
+    def assign_homes_arg(self, a: Arg, home: dict[str, Arg]) -> Arg:
         if isinstance(a, Var):
-            return home[a.name]
+            return home.get(a.name, a)
         return a
 
-    def assign_homes_instr(self, i: Instr, home: dict[Var, Arg]) -> Instr:
+    def assign_homes_instr(self, i: Instr, home: dict[str, Arg]) -> Instr:
         new_args = [self.assign_homes_arg(arg, home) for arg in i.args]
         return Instr(i.op, new_args)
 
-    def assign_homes(self, p: X86Program) -> X86Program:
-        variables = self.collect_vars(p.instrs)
-        home = {}
-        stack_offset = -8
+    def stack_space_required(self, home: dict[str, Arg]) -> int:
+        """Compute bytes of stack space needed for homes that live on the stack."""
+        offsets = [loc.offset for loc in home.values() if isinstance(loc, Deref)]
+        if not offsets:
+            return 0
+        return -min(offsets)
 
-        for var_name in sorted(variables):
-            home[var_name] = Deref("rbp", stack_offset)
-            stack_offset -= 8
+    def assign_homes(self, p: X86Program, home: dict[str, Arg] | None = None) -> X86Program:
+        if home is None:
+            variables = self.collect_vars(p.instrs)
+            stack_offset = -8
+            home = {}
 
-        var_size = len(variables)
-        stack_space = var_size * 8
-
-        if stack_offset % 16 != 0:
-            stack_offset += 8
+            for var_name in sorted(variables):
+                home[var_name] = Deref("rbp", stack_offset)
+                stack_offset -= 8
 
         new_instrs = [self.assign_homes_instr(i, home) for i in p.instrs]
-
-        prologue = [Instr("pushq", [Reg("rbp")]), Instr("movq", [Reg("rsp"), Reg("rbp")])]
-        if stack_space > 0:
-            prologue.append(Instr("subq", [Immediate(stack_space), Reg("rsp")]))
-
-        epilogue = []
-
-        if stack_space > 0:
-            epilogue.append(Instr("addq", [Immediate(stack_space), Reg("rsp")]))
-
-        epilogue.extend([Instr("popq", [Reg("rbp")]), Instr("retq", [])])
-
-        return X86Program(prologue + new_instrs + epilogue)
+        return X86Program(new_instrs, used_callee=p.used_callee)
 
     ############################################################################
     # Patch Instructions
@@ -376,6 +366,9 @@ class Compiler:
 
     def patch_instr(self, i: Instr) -> list[Instr]:
         match i:
+            case Instr("movq", [src, dst]) if src == dst:
+                # Trivial move; drop it.
+                return []
             case Instr("movq", [Deref(reg1, off1), Deref(reg2, off2)]):
                 # movq mem1, mem2
                 # ->
@@ -421,7 +414,37 @@ class Compiler:
     # Prelude & Conclusion
     ############################################################################
 
+    def align(self, n: int, multiple: int = 16) -> int:
+        return ((n + (multiple - 1)) // multiple) * multiple
+
+    def count_spilled_slots(self, p: X86Program) -> int:
+        """Count stack slots used for spilled variables based on rbp-relative derefs."""
+        offsets = set()
+        for instr in p.instrs:
+            for arg in instr.args:
+                if isinstance(arg, Deref) and arg.reg == "rbp" and arg.offset < 0:
+                    offsets.add(arg.offset)
+        return len(offsets)
+
     def prelude_and_conclusion(self, p: X86Program) -> X86Program:
         label = label_name("main")
-        prelude = [Instr(".globl", [Label(label)]), Instr(f"{label}:", [])]
-        return X86Program(prelude + p.instrs)
+        used_callee = getattr(p, "used_callee", set())
+
+        spilled_slots = self.count_spilled_slots(p)
+        callee_count = len(used_callee)
+        frame_bytes = self.align(8 * spilled_slots + 8 * callee_count) - 8 * callee_count
+
+        prelude = [Instr(".globl", [Label(label)]), Instr(f"{label}:", []), Instr("pushq", [Reg("rbp")]), Instr("movq", [Reg("rsp"), Reg("rbp")])]
+        for reg in sorted(used_callee):
+            prelude.append(Instr("pushq", [Reg(reg)]))
+        if frame_bytes > 0:
+            prelude.append(Instr("subq", [Immediate(frame_bytes), Reg("rsp")]))
+
+        epilogue = []
+        if frame_bytes > 0:
+            epilogue.append(Instr("addq", [Immediate(frame_bytes), Reg("rsp")]))
+        for reg in reversed(sorted(used_callee)):
+            epilogue.append(Instr("popq", [Reg(reg)]))
+        epilogue.extend([Instr("popq", [Reg("rbp")]), Instr("retq", [])])
+
+        return X86Program(prelude + p.instrs + epilogue, used_callee=used_callee)
