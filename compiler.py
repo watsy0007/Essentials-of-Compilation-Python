@@ -268,9 +268,11 @@ class Compiler:
         interference_graph: dict[str, set[str]],
         variables: list[str],
         precolored: dict[str, int] | None = None,
+        bias: dict[str, set[str]] | None = None,
     ) -> dict[str, int]:
         """DSatur graph coloring with stable tie-breaks (degree, then input order)."""
         colors: dict[str, int] = dict(precolored or {})
+        bias = bias or {}
         order = {v: idx for idx, v in enumerate(variables)}
         pending = [v for v in variables if v not in colors]
 
@@ -282,10 +284,27 @@ class Compiler:
         while pending:
             var = max(pending, key=key)
             neighbor_colors = {colors[n] for n in interference_graph.get(var, set()) if n in colors}
-            color = 0
-            while color in neighbor_colors:
-                color += 1
-            colors[var] = color
+
+            preferred_colors = []
+            for partner in bias.get(var, set()):
+                partner_color = colors.get(partner)
+                if partner_color is None or partner_color in neighbor_colors:
+                    continue
+                if partner_color not in preferred_colors:
+                    preferred_colors.append(partner_color)
+
+            chosen_color = None
+            for color in preferred_colors:
+                if color not in neighbor_colors:
+                    chosen_color = color
+                    break
+
+            if chosen_color is None:
+                chosen_color = 0
+                while chosen_color in neighbor_colors:
+                    chosen_color += 1
+
+            colors[var] = chosen_color
             pending.remove(var)
 
         return {v: colors[v] for v in variables}
@@ -295,15 +314,36 @@ class Compiler:
     # Allocate Registers
     ############################################################################
 
+    def collect_move_bias(self, p: X86Program) -> dict[str, set[str]]:
+        """Return preferred co-coloring relationships derived from move instructions."""
+        bias: dict[str, set[str]] = {}
+
+        def add(u: str, v: str):
+            if u == v:
+                return
+            bias.setdefault(u, set()).add(v)
+
+        for instr in p.instrs:
+            if instr.op != "movq":
+                continue
+            src, dst = instr.args
+            if not isinstance(src, (Reg, Var)) or not isinstance(dst, (Reg, Var)):
+                continue
+            add(src.name, dst.name)
+            add(dst.name, src.name)
+
+        return bias
+
     def allocate_registers(self, p: X86Program) -> X86Program:
         """Replace some Var operands with physical registers using graph coloring."""
         available_registers = ["rcx", "rdx", "rsi", "rdi", "r8", "r9", "r10", "r11"]
         precolored = {reg: idx for idx, reg in enumerate(available_registers)}
+        move_bias = self.collect_move_bias(p)
 
         live_after = self.uncover_live(p)
         interference_graph = self.build_interference(p, live_after)
         variables = sorted(self.collect_vars(p.instrs))
-        color_assignment = self.color_graph(interference_graph, variables, precolored)
+        color_assignment = self.color_graph(interference_graph, variables, precolored, move_bias)
 
         register_map: dict[str, Reg] = {
             var: Reg(available_registers[color])

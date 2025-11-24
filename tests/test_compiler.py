@@ -130,6 +130,27 @@ def test_allocate_registers():
     assert repr(allocated) == repr(expected)
 
 
+def test_allocate_registers_biased_by_moves():
+    program = X86Program(
+        [
+            Instr("movq", [Immediate(7), Var("a")]),
+            Instr("movq", [Var("a"), Reg("rdi")]),
+        ]
+    )
+
+    cc = Compiler()
+    allocated = cc.allocate_registers(program)
+
+    expected = X86Program(
+        [
+            Instr("movq", [Immediate(7), Reg("rdi")]),
+            Instr("movq", [Reg("rdi"), Reg("rdi")]),
+        ]
+    )
+
+    assert repr(allocated) == repr(expected)
+
+
 def test_patch_instructions():
     cc = Compiler()
 
