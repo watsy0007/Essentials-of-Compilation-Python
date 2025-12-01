@@ -1,6 +1,7 @@
 import ast
 import sys
 import os
+import pytest
 
 # Add parent directory to path to import modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -18,8 +19,6 @@ def test_l_var():
     # Test -1
     expr = ast.UnaryOp(ast.USub(), ast.Constant(1))
     assert tc.type_check_exp(expr, {}) == int
-
-    print("L_var tests passed")
 
 def test_l_if():
     tc = TypeCheckLif()
@@ -43,9 +42,3 @@ def test_l_if():
     # Test IfExp(True, 1, 2)
     expr = ast.IfExp(ast.Constant(True), ast.Constant(1), ast.Constant(2))
     assert tc.type_check_exp(expr, {}) == int
-
-    print("L_if tests passed")
-
-if __name__ == "__main__":
-    test_l_var()
-    test_l_if()
