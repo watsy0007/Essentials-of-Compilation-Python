@@ -1,4 +1,4 @@
-from lint_compiler.ast_nodes import (
+from ast_nodes import (
     Add,
     BinOp,
     Call,
@@ -10,7 +10,7 @@ from lint_compiler.ast_nodes import (
     USub,
     UnaryOp,
 )
-from lint_compiler.partial_eval_int import PartialEvalInt
+from partial_eval_int import PartialEvalInt
 
 
 def test_pe_exp_folds_to_integer():

@@ -1,5 +1,6 @@
 from .ast_nodes import (
     Add,
+    Assign,
     BinOp,
     Call,
     Constant,
@@ -11,6 +12,7 @@ from .ast_nodes import (
     UnaryOp,
 )
 from .interpreter_int import InterpeterInt
+from .interpreter_var import InterpreterVar
 from .partial_eval_int import PartialEvalInt
 
 __all__ = [
@@ -21,9 +23,11 @@ __all__ = [
     "Name",
     "USub",
     "Add",
+    "Assign",
     "Sub",
     "Expr",
     "Module",
     "InterpeterInt",
+    "InterpreterVar",
     "PartialEvalInt",
 ]

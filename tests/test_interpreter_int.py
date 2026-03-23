@@ -1,4 +1,4 @@
-from lint_compiler.ast_nodes import (
+from ast_nodes import (
     Add,
     BinOp,
     Call,
@@ -10,7 +10,7 @@ from lint_compiler.ast_nodes import (
     USub,
     UnaryOp,
 )
-from lint_compiler.interpreter_int import InterpeterInt
+from interpreter_int import InterpeterInt
 
 
 def test_interp_exp_arithmetic():
@@ -29,10 +29,21 @@ def test_interp_stmt_print(capsys):
     stmt = Expr(Call(Name("print"), [BinOp(Constant(8), Add(), Constant(2))]))
     interp = InterpeterInt(Module([]))
 
-    interp.interp_stmt(stmt)
+    interp.interp_stmt(stmt, [])
 
     captured = capsys.readouterr()
     assert captured.out == "10\n"
+
+
+def test_interp_stmt_runs_continuation(capsys):
+    first = Expr(Call(Name("print"), [Constant(1)]))
+    cont = [Expr(Call(Name("print"), [Constant(2)]))]
+    interp = InterpeterInt(Module([]))
+
+    interp.interp_stmt(first, cont)
+
+    captured = capsys.readouterr()
+    assert captured.out == "1\n2\n"
 
 
 def test_interp_stmts_from_module(capsys):

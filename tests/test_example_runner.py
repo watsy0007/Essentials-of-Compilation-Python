@@ -1,4 +1,4 @@
-from lint_compiler import Add, BinOp, Call, Constant, Expr, Module, Name, USub, UnaryOp
+from ast_nodes import Add, BinOp, Call, Constant, Expr, Module, Name, USub, UnaryOp
 
 
 def build_book_style_program() -> Module:

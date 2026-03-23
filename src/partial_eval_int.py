@@ -1,4 +1,4 @@
-from .ast_nodes import (
+from ast_nodes import (
     Add,
     BinOp,
     Call,

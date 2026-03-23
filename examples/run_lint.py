@@ -1,15 +1,17 @@
-from lint_compiler import (
+from ast_nodes import (
     Add,
+    Assign,
     BinOp,
     Call,
     Constant,
     Expr,
-    InterpeterInt,
     Module,
     Name,
     USub,
     UnaryOp,
 )
+from interpreter_int import InterpeterInt
+from interpreter_var import InterpreterVar
 
 
 def program_book_example() -> Module:
@@ -25,6 +27,16 @@ def program_no_input() -> Module:
     return Module([Expr(Call(Name("print"), [exp]))])
 
 
+def program_var_example() -> Module:
+    return Module(
+        [
+            Assign([Name("x")], Call(Name("input_int"), [])),
+            Assign([Name("y")], BinOp(Name("x"), Add(), Constant(5))),
+            Expr(Call(Name("print"), [Name("y")])),
+        ]
+    )
+
+
 if __name__ == "__main__":
     print("Program A (no input): print(20 + -3)")
     InterpeterInt(program_no_input()).interp()
@@ -32,3 +44,7 @@ if __name__ == "__main__":
     print("Program B (book example): print(input_int() + -8)")
     print("Please enter an integer:")
     InterpeterInt(program_book_example()).interp()
+
+    print("Program C (variables): x = input_int(); y = x + 5; print(y)")
+    print("Please enter an integer:")
+    InterpreterVar(program_var_example()).interp()

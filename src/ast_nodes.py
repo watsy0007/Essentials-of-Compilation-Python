@@ -71,3 +71,12 @@ class Module:
 
     def __repr__(self):
         return f"Module({self.body!r})"
+
+
+class Assign:
+    def __init__(self, targets, value):
+        self.targets = targets
+        self.value = value
+
+    def __repr__(self):
+        return f"Assign({self.targets!r}, {self.value!r})"
